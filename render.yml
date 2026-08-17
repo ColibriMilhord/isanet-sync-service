@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: isanet-sync-service
+    runtime: docker
+    rootDir: services/isanet-sync
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: frankfurt
+    autoDeploy: true
+    envVars:
+      - key: ISANET_EMAIL
+        sync: false
+      - key: ISANET_PASSWORD
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SYNC_SECRET
+        sync: false
