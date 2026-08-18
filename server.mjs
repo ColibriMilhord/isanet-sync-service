@@ -59,17 +59,38 @@ app.post("/sync/isanet-clients", async (req, res) => {
     await page.goto(LOGIN_URL, { waitUntil: "networkidle" });
 
     await page.fill('input[type="email"]', process.env.ISANET_EMAIL);
+    // Le champ email a un debounce Livewire de 500ms (wire:model.debounce.500ms) :
+    // il faut laisser le temps à l'AJAX interne d'enregistrer la valeur côté
+    // serveur avant de soumettre, sinon le formulaire part avec un champ vide.
+    await page.waitForTimeout(900);
+
     await page.fill(
       'input[autocomplete="current-password"]',
       process.env.ISANET_PASSWORD
     );
+    await page.waitForTimeout(300);
+
     log("Identifiants saisis, soumission du formulaire...");
     await page.click('button[type="submit"]');
     await page.waitForLoadState("networkidle");
 
     if (page.url().includes("/login")) {
+      // Tente de récupérer un message d'erreur visible pour diagnostiquer.
+      let visibleError = "";
+      try {
+        const errorLocator = page
+          .locator('[role="alert"], .alert, .error, .text-red-500, .text-danger')
+          .first();
+        if (await errorLocator.count()) {
+          visibleError = (await errorLocator.innerText()).trim();
+        }
+      } catch {
+        // ignore, pas critique
+      }
       throw new Error(
-        "Toujours sur /login après connexion — identifiants invalides, 2FA ou captcha."
+        `Toujours sur /login après connexion.${
+          visibleError ? ` Message affiché sur la page: "${visibleError}"` : " Aucun message d'erreur visible détecté — identifiants invalides, 2FA ou captcha probable."
+        }`
       );
     }
     log("Connexion réussie.");
