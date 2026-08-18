@@ -136,17 +136,27 @@ app.post("/sync/isanet-clients", async (req, res) => {
     await page.waitForTimeout(1500);
 
     log("Sélection de tous les contacts...");
-    const headerCheckbox = page
-      .locator("table thead input[type=checkbox]")
-      .first();
+    const headerCheckbox = page.locator("input.table-checkbox").first();
     if (await headerCheckbox.count()) {
       await headerCheckbox.check();
+      await page.waitForTimeout(500); // laisse le x-on:change Alpine.js peupler selectedRows
     } else {
-      const rowCheckboxes = page.locator("table tbody input[type=checkbox]");
+      const rowCheckboxes = page.locator("[data-listing-checkbox]");
       const count = await rowCheckboxes.count();
       log(`Pas de case "tout sélectionner", sélection ligne par ligne (${count} lignes).`);
+      let checkedCount = 0;
+      let skippedCount = 0;
       for (let i = 0; i < count; i++) {
-        await rowCheckboxes.nth(i).check();
+        try {
+          await rowCheckboxes.nth(i).check({ timeout: 5000 });
+          checkedCount++;
+        } catch {
+          skippedCount++;
+        }
+      }
+      log(`${checkedCount} case(s) cochée(s), ${skippedCount} ignorée(s) (non cochables).`);
+      if (checkedCount === 0) {
+        throw new Error("Aucune case à cocher n'a pu être sélectionnée — sélecteur probablement inadapté à la structure réelle du tableau.");
       }
     }
 
@@ -170,7 +180,11 @@ app.post("/sync/isanet-clients", async (req, res) => {
     await page.getByText("Exporter", { exact: true }).click();
 
     const downloadOnOriginal = page.waitForEvent("download", { timeout: 20000 }).catch(() => null);
-    await page.getByText("CSV (.csv)", { exact: true }).click();
+    // Le texte "CSV (.csv)" apparaît aussi dans le panneau de notifications
+    // (résultat d'un export précédent) — on cible uniquement le vrai item de
+    // menu déroulant, identifiable par sa classe "menu-link".
+    const csvMenuItem = page.locator("div.menu-link", { hasText: "CSV" }).first();
+    await csvMenuItem.click();
 
     let download = await downloadOnOriginal;
 
