@@ -159,12 +159,39 @@ app.post("/sync/isanet-clients", async (req, res) => {
     }
     await boltMenuTrigger.click();
 
+    // L'export peut ouvrir un nouvel onglet plutôt que déclencher un
+    // téléchargement direct sur la page actuelle — on surveille les deux.
+    let newTabPage = null;
+    context.once("page", (p) => {
+      newTabPage = p;
+    });
+
     log('Clic sur "Exporter" > "CSV (.csv)"...');
     await page.getByText("Exporter", { exact: true }).click();
-    const [download] = await Promise.all([
-      page.waitForEvent("download"),
-      page.getByText("CSV (.csv)", { exact: true }).click(),
-    ]);
+
+    const downloadOnOriginal = page.waitForEvent("download", { timeout: 20000 }).catch(() => null);
+    await page.getByText("CSV (.csv)", { exact: true }).click();
+
+    let download = await downloadOnOriginal;
+
+    if (!download) {
+      await page.waitForTimeout(1500); // laisse le temps à un éventuel nouvel onglet de s'ouvrir
+      if (newTabPage) {
+        log("Nouvel onglet détecté après le clic export, tentative de capture du téléchargement dessus...");
+        download = await newTabPage.waitForEvent("download", { timeout: 20000 }).catch(() => null);
+        if (!download) {
+          const newTabText = await newTabPage.locator("body").innerText().catch(() => "");
+          throw new Error(
+            `Aucun téléchargement détecté sur le nouvel onglet. Contenu visible: "${newTabText.slice(0, 300).replace(/\s+/g, " ")}"`
+          );
+        }
+      } else {
+        const pageText = await page.locator("body").innerText().catch(() => "");
+        throw new Error(
+          `Aucun téléchargement détecté (ni page actuelle, ni nouvel onglet). Contenu visible: "${pageText.slice(0, 300).replace(/\s+/g, " ")}"`
+        );
+      }
+    }
 
     const csvPath = await download.path();
     const csvContent = await fs.readFile(csvPath, "utf-8");
