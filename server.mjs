@@ -133,7 +133,8 @@ app.post("/sync/isanet-clients", async (req, res) => {
 
     log("Navigation vers Mes contacts...");
     await page.goto(CONTACTS_URL, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.waitForTimeout(1500);
+    await page.waitForSelector("input.table-checkbox", { timeout: 20000 });
+    await page.waitForTimeout(500);
 
     log("Sélection de tous les contacts...");
     const headerCheckbox = page.locator("input.table-checkbox").first();
@@ -169,43 +170,40 @@ app.post("/sync/isanet-clients", async (req, res) => {
     }
     await boltMenuTrigger.click();
 
-    // L'export peut ouvrir un nouvel onglet plutôt que déclencher un
-    // téléchargement direct sur la page actuelle — on surveille les deux.
-    let newTabPage = null;
-    context.once("page", (p) => {
-      newTabPage = p;
-    });
-
+    // L'export ne télécharge pas directement : il lance une tâche asynchrone
+    // dont le résultat apparaît dans le centre de notifications (cloche), avec
+    // un lien /file/{id}/download une fois prêt (peut prendre du temps pour
+    // de gros volumes).
     log('Clic sur "Exporter" > "CSV (.csv)"...');
     await page.getByText("Exporter", { exact: true }).click();
-
-    const downloadOnOriginal = page.waitForEvent("download", { timeout: 20000 }).catch(() => null);
-    // Le texte "CSV (.csv)" apparaît aussi dans le panneau de notifications
-    // (résultat d'un export précédent) — on cible uniquement le vrai item de
-    // menu déroulant, identifiable par sa classe "menu-link".
     const csvMenuItem = page.locator("div.menu-link", { hasText: "CSV" }).first();
     await csvMenuItem.click();
 
-    let download = await downloadOnOriginal;
+    log("Export lancé. Ouverture du centre de notifications...");
+    await page.locator("#panel_notification_center").click();
+    await page.waitForTimeout(1000);
 
-    if (!download) {
-      await page.waitForTimeout(1500); // laisse le temps à un éventuel nouvel onglet de s'ouvrir
-      if (newTabPage) {
-        log("Nouvel onglet détecté après le clic export, tentative de capture du téléchargement dessus...");
-        download = await newTabPage.waitForEvent("download", { timeout: 20000 }).catch(() => null);
-        if (!download) {
-          const newTabText = await newTabPage.locator("body").innerText().catch(() => "");
-          throw new Error(
-            `Aucun téléchargement détecté sur le nouvel onglet. Contenu visible: "${newTabText.slice(0, 300).replace(/\s+/g, " ")}"`
-          );
-        }
-      } else {
-        const pageText = await page.locator("body").innerText().catch(() => "");
-        throw new Error(
-          `Aucun téléchargement détecté (ni page actuelle, ni nouvel onglet). Contenu visible: "${pageText.slice(0, 300).replace(/\s+/g, " ")}"`
-        );
-      }
+    log("Attente que l'export soit prêt (peut prendre 1-2 minutes pour un gros volume)...");
+    const downloadLink = page.locator('#panel-notification-body a[href*="/file/"]').first();
+    const maxWaitMs = 150000;
+    const pollIntervalMs = 4000;
+    let waited = 0;
+    while (waited < maxWaitMs) {
+      if (await downloadLink.count()) break;
+      await page.waitForTimeout(pollIntervalMs);
+      waited += pollIntervalMs;
     }
+    if (!(await downloadLink.count())) {
+      throw new Error(
+        `Export toujours pas prêt après ${maxWaitMs / 1000}s d'attente — le job côté IsanetFact prend peut-être plus de temps que prévu.`
+      );
+    }
+    log(`Export prêt après ${Math.round(waited / 1000)}s, téléchargement...`);
+
+    const [download] = await Promise.all([
+      page.waitForEvent("download", { timeout: 20000 }),
+      downloadLink.click(),
+    ]);
 
     const csvPath = await download.path();
     const csvContent = await fs.readFile(csvPath, "utf-8");
