@@ -69,7 +69,8 @@ app.post("/sync/isanet-clients", async (req, res) => {
     const page = await context.newPage();
 
     log("Navigation vers la page de connexion IsanetFact...");
-    await page.goto(LOGIN_URL, { waitUntil: "networkidle" });
+    await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.waitForSelector('input[type="email"]', { timeout: 15000 });
 
     await page.fill('input[type="email"]', process.env.ISANET_EMAIL);
     // Le champ email a un debounce Livewire de 500ms (wire:model.debounce.500ms) :
@@ -85,32 +86,54 @@ app.post("/sync/isanet-clients", async (req, res) => {
 
     log("Identifiants saisis, soumission du formulaire...");
     await page.click('button[type="submit"]');
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(1000);
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(2000);
 
     if (page.url().includes("/login")) {
-      // Tente de récupérer un message d'erreur visible pour diagnostiquer.
+      // Tente de récupérer un message d'erreur visible (inline OU toast toastr).
       let visibleError = "";
       try {
         const errorLocator = page
-          .locator('[role="alert"], .alert, .error, .text-red-500, .text-danger')
+          .locator(
+            '[role="alert"], .alert, .error, .text-red-500, .text-danger, .toast-message, .toast-error, #toast-container, .toastify, .swal2-html-container'
+          )
           .first();
         if (await errorLocator.count()) {
           visibleError = (await errorLocator.innerText()).trim();
         }
       } catch {
-        // ignore, pas critique
+        // ignore
       }
+
+      // Filet de sécurité : cherche des mots-clés d'erreur dans tout le texte visible.
+      if (!visibleError) {
+        try {
+          const bodyText = await page.locator("body").innerText();
+          const keywords = ["incorrect", "invalide", "erreur", "échoué", "captcha", "bloqué", "suspect", "robot", "sécurité"];
+          const lower = bodyText.toLowerCase();
+          for (const kw of keywords) {
+            const idx = lower.indexOf(kw);
+            if (idx !== -1) {
+              visibleError = bodyText.slice(Math.max(0, idx - 60), idx + 100).replace(/\s+/g, " ").trim();
+              break;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       throw new Error(
         `Toujours sur /login après connexion.${
-          visibleError ? ` Message affiché sur la page: "${visibleError}"` : " Aucun message d'erreur visible détecté — identifiants invalides, 2FA ou captcha probable."
+          visibleError ? ` Message/texte détecté: "${visibleError}"` : " Aucun message d'erreur ni mot-clé détecté sur la page."
         }`
       );
     }
     log("Connexion réussie.");
 
     log("Navigation vers Mes contacts...");
-    await page.goto(CONTACTS_URL, { waitUntil: "networkidle" });
+    await page.goto(CONTACTS_URL, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.waitForTimeout(1500);
 
     log("Sélection de tous les contacts...");
     const headerCheckbox = page
