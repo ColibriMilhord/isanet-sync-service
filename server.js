@@ -14,6 +14,13 @@ import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { parse } from "csv-parse/sync";
 import fs from "node:fs/promises";
+import WebSocket from "ws";
+
+// Polyfill global requis par @supabase/supabase-js (module realtime) sur
+// Node < 22, qui n'a pas WebSocket natif. Doit être fait AVANT createClient.
+if (!globalThis.WebSocket) {
+  globalThis.WebSocket = WebSocket;
+}
 
 const app = express();
 app.use(express.json());
