@@ -10,6 +10,7 @@
 // Dépendances : express, playwright, @supabase/supabase-js, csv-parse
 
 import express from "express";
+import cors from "cors";
 import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { parse } from "csv-parse/sync";
@@ -23,6 +24,7 @@ if (!globalThis.WebSocket) {
 }
 
 const app = express();
+app.use(cors()); // Autorise les appels cross-origin depuis le frontend Render
 app.use(express.json());
 
 const LOGIN_URL = "https://app.isanet-fact.fr/login";
