@@ -179,9 +179,16 @@ app.post("/sync/isanet-clients", async (req, res) => {
     const csvMenuItem = page.locator("div.menu-link", { hasText: "CSV" }).first();
     await csvMenuItem.click();
 
-    log("Export lancé. Ouverture du centre de notifications...");
-    await page.locator("#panel_notification_center").click();
-    await page.waitForTimeout(1000);
+    log("Export lancé. Vérification du centre de notifications...");
+    const drawerAlreadyOpen = await page
+      .locator('[data-kt-drawer-toggle="#panel_notification_center"].drawer-on')
+      .count();
+    if (drawerAlreadyOpen) {
+      log("Panneau déjà ouvert automatiquement (comportement Livewire), pas besoin de cliquer.");
+    } else {
+      await page.locator("#panel_notification_center").click();
+      await page.waitForTimeout(1000);
+    }
 
     log("Attente que l'export soit prêt (peut prendre 1-2 minutes pour un gros volume)...");
     const downloadLink = page.locator('#panel-notification-body a[href*="/file/"]').first();
